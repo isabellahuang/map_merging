@@ -58,6 +58,7 @@ find_feature_correspondences (PointCloud<PFHRGBSignature250>::Ptr &source_descri
   // Resize the output vector
   correspondences_out.resize (source_descriptors->size ());
   correspondence_scores_out.resize (source_descriptors->size ());
+  cout << "Should be size " << source_descriptors->size() << endl;
 
   // Use a KdTree to search for the nearest matches in feature space
   search::KdTree<PFHRGBSignature250> descriptor_kdtree;
@@ -75,7 +76,6 @@ find_feature_correspondences (PointCloud<PFHRGBSignature250>::Ptr &source_descri
     correspondence_scores_out[i] = k_squared_distances[0];
   }
 
-  cout << "Finding correspondences" << endl;
 }
 
 void
@@ -451,14 +451,60 @@ void compute_rift_features_at_keypoints(PointCloud<PointXYZI>::Ptr &cloud,
   rift_est.compute(*rift_output);
 }
 
+Eigen::Matrix4f getCorrespondenceRejectionTransformation(
+  CorrespondencesPtr pCorrespondences,
+  PointCloud<PointXYZRGB>::Ptr &keypoints1,
+  PointCloud<PointXYZRGB>::Ptr &keypoints2,
+  float inlier_threshold) {
+
+  CorrespondencesPtr pCorrespondences2 (new Correspondences);
+  registration::CorrespondenceRejectorSampleConsensus<PointXYZRGB> rej;
+  rej.setInlierThreshold(inlier_threshold);
+  rej.setSaveInliers(true);
+  rej.setRefineModel(true);
+  rej.setInputSource(keypoints1);
+  rej.setInputTarget(keypoints2);
+  rej.setInputCorrespondences(pCorrespondences);
+  rej.getCorrespondences(*pCorrespondences2);
+
+  return rej.getBestTransformation();
+  // std::vector<int> *inlier_indices = new std::vector<int>();
+  // std::vector<int> inlier_indices;
+  // rej.getInliersIndices(inlier_indices);
+  // std::cout << "Size of inlier indices: " << inlier_indices.size()  << std::endl;
+  // std::cout << "Size of correspondences: " << pCorrespondences->size()  << std::endl;
+}
+
+float getFitnessScore(
+  PointCloud<PointXYZRGB>::Ptr &cloud1,
+  PointCloud<PointXYZRGB>::Ptr &cloud2 
+  ) {
+  IterativeClosestPoint<PointXYZRGB, PointXYZRGB> icp;
+  icp.setMaxCorrespondenceDistance(0.01);
+  icp.setMaximumIterations(1);
+  icp.setInputSource(cloud1);
+  icp.setInputTarget(cloud2);
+
+  PointCloud<PointXYZRGB>::Ptr registration_output (new PointCloud<PointXYZRGB>);
+  icp.align(*registration_output);
+  Eigen::Matrix4f refined_T = icp.getFinalTransformation();
+
+  return icp.getFitnessScore();
+}
+
+
+
+
+
 int main(int argc, char** argv) {
 
   // Load files (first cloud)
   PointCloud<PointXYZRGB>::Ptr pre_cloud1 (new PointCloud<PointXYZRGB>);
   PointCloud<PointXYZRGB>::Ptr cloud1 (new PointCloud<PointXYZRGB>);
   PointCloud<PointXYZRGB>::Ptr downsampled1 (new PointCloud<PointXYZRGB>);
-  io::loadPCDFile("/home/drrobot1/rgbdslam_catkin_ws/hi2.pcd", *pre_cloud1);
   PointCloud<PointXYZI>::Ptr cloudIntensity1(new PointCloud<PointXYZI>);
+
+  io::loadPCDFile("/home/drrobot1/rgbdslam_catkin_ws/hey2.pcd", *pre_cloud1);
 
   // Load files (second cloud)
   PointCloud<PointXYZRGB>::Ptr proto_cloud2 (new PointCloud<PointXYZRGB>);
@@ -468,19 +514,14 @@ int main(int argc, char** argv) {
   PointCloud<PointXYZRGB>::Ptr cloud2 (new PointCloud<PointXYZRGB>);
   PointCloud<PointXYZRGB>::Ptr tf_cloud1 (new PointCloud<PointXYZRGB>);
   PointCloud<PointXYZRGB>::Ptr tf_keypoints1 (new PointCloud<PointXYZRGB>);
+  PointCloud<PointXYZI>::Ptr cloudIntensity2(new PointCloud<PointXYZI>);
 
-  io::loadPCDFile("/home/drrobot1/rgbdslam_catkin_ws/hi1.pcd", *proto_cloud2);
+  io::loadPCDFile("/home/drrobot1/rgbdslam_catkin_ws/hey1.pcd", *proto_cloud2);
 
 
   // Transform pre_cloud2 to test
   Eigen::Matrix4f transform_second = Eigen::Matrix4f::Identity();
-  // transform_second(0,3) = 10;
-
   transformPointCloud(*proto_cloud2, *pre_cloud2, transform_second);
-
-
-
-  PointCloud<PointXYZI>::Ptr cloudIntensity2(new PointCloud<PointXYZI>);
 
   // Make final cloud
   PointCloud<PointXYZRGB>::Ptr cloud3 (new PointCloud<PointXYZRGB>);
@@ -529,22 +570,20 @@ int main(int argc, char** argv) {
 
 
   // Compute keypoints
-  const float min_scale = 0.05;
-  const int nr_octaves = 2;
-  const int nr_octaves_per_scale = 3;
-  const float min_contrast = 10;
+  // const float min_scale = 0.05;
+  // const int nr_octaves = 2;
+  // const int nr_octaves_per_scale = 3;
+  // const float min_contrast = 10;
   // detect_keypoints(cloud1, min_scale, nr_octaves, nr_octaves_per_scale, min_contrast, keypoints1);
   // detect_keypoints(cloud2, min_scale, nr_octaves, nr_octaves_per_scale, min_contrast, keypoints2);
+  detect_susan_keypoints(cloud1, keypoints1);
+  detect_susan_keypoints(cloud2, keypoints2);
 
+  // vector<int> indices3;
+  // removeNaNFromPointCloud(*pre_keypoints1, *keypoints1, indices3);
 
-  detect_susan_keypoints(cloud1, pre_keypoints1);
-  detect_susan_keypoints(cloud2, pre_keypoints2);
-
-  vector<int> indices3;
-  removeNaNFromPointCloud(*pre_keypoints1, *keypoints1, indices3);
-
-  vector<int> indices4;
-  removeNaNFromPointCloud(*pre_keypoints2, *keypoints2, indices4);
+  // vector<int> indices4;
+  // removeNaNFromPointCloud(*pre_keypoints2, *keypoints2, indices4);
 
   // Remove use of keypoints
   // keypoints1 = downsampled1;
@@ -556,6 +595,8 @@ int main(int argc, char** argv) {
   compute_PFH_features_at_keypoints(downsampled1, normals1, keypoints1, feature_radius, descriptors1);
   compute_PFH_features_at_keypoints(downsampled2, normals2, keypoints2, feature_radius, descriptors2);
 
+  cout << "Size of keypoints1: " << keypoints1->points.size() << endl;
+  cout << "Size of descriptors1: " << descriptors1->points.size() << endl;
   // compute_FPFH_features_at_keypoints(downsampled1, normals1, keypoints1, feature_radius, descriptors1);
   // compute_FPFH_features_at_keypoints(downsampled2, normals2, keypoints2, feature_radius, descriptors2);
 
@@ -674,42 +715,60 @@ int main(int argc, char** argv) {
 
 
   CorrespondencesPtr pCorrespondences (new Correspondences);
-
-
   pCorrespondences->resize(correspondences.size());
+
   for (size_t i = 0; i < correspondences.size(); i++) {
     (*pCorrespondences)[i].index_query = i;
     (*pCorrespondences)[i].index_match = correspondences[i];
   }
 
-  
-  registration::CorrespondenceRejectorSampleConsensus<PointXYZRGB> rej;
-  rej.setInlierThreshold(0.15);
-  rej.setSaveInliers(true);
-  // rej.setMaximumIterations(5000); // Default is 1000
-  rej.setInputSource(keypoints1);
-  rej.setInputTarget(keypoints2);
-  rej.setInputCorrespondences(pCorrespondences);
-  rej.getCorrespondences(*pCorrespondences);
-  // rej.setInlierThreshold(2.5); // Default is only 5 cm!!
 
-  std::cout << " Max iterations : " << rej.getMaximumIterations() << std::endl;
-  std::cout << "Refine model : " << rej.getRefineModel() << std::endl;
-  Eigen::Matrix4f initial_T = rej.getBestTransformation();
+
+  // std::cout << " Max iterations : " << rej.getMaximumIterations() << std::endl;
+  // std::cout << "Refine model : " << rej.getRefineModel() << std::endl;
+  Eigen::Matrix4f initial_T = Eigen::Matrix4f::Identity();
+  float best_threshold = 0.0;
+  float best_fitness_score = 100;
+
+  // for (float threshold = 0.03; threshold < 0.15; threshold += 0.01) {
+  //   initial_T = getCorrespondenceRejectionTransformation(pCorrespondences, keypoints1, keypoints2, threshold);
+
+  //   // Apply transformation to the first cloud
+  //   transformPointCloud(*cloud1, *tf_cloud1, initial_T);
+  //   float fitness_score = getFitnessScore(tf_cloud1, cloud2);
+  //   cout << threshold << " fitness score: " << fitness_score << endl;
+
+  //   if (fitness_score < best_fitness_score) {
+  //     best_fitness_score = fitness_score;
+  //     best_threshold = threshold;
+  //   }
+  // }
+
+  cout << "Best transformation: " << endl;
+  initial_T = getCorrespondenceRejectionTransformation(pCorrespondences, keypoints1, keypoints2, 0.05);
+  // Apply transformation to the first cloud
+  transformPointCloud(*cloud1, *tf_cloud1, initial_T);
+
+  cout << best_threshold << " fitness score: " << getFitnessScore(tf_cloud1, cloud2) << endl;
+
+
   // std::vector<int> *inlier_indices = new std::vector<int>();
-  std::vector<int> inlier_indices;
-  rej.getInliersIndices(inlier_indices);
-  std::cout << "Size of inlier indices: " << inlier_indices.size()  << std::endl;
-  std::cout << "Size of correspondences: " << pCorrespondences->size()  << std::endl;
+  // std::vector<int> inlier_indices;
+  // rej.getInliersIndices(inlier_indices);
+  // std::cout << "Size of inlier indices: " << inlier_indices.size()  << std::endl;
+  // std::cout << "Size of correspondences: " << pCorrespondences->size()  << std::endl;
 
   // Get the distances between points in the inlier indices
-  // for (size_t i = 0; i < pCorrespondences->size(); i++) {
-  //   float dx = keypoints1->points[(*pCorrespondences)[i].index_query].x - keypoints1->points[(*pCorrespondences)[i].index_match].x;
-  //   float dy = keypoints1->points[(*pCorrespondences)[i].index_query].y - keypoints1->points[(*pCorrespondences)[i].index_match].y;
-  //   float dz = keypoints1->points[(*pCorrespondences)[i].index_query].z - keypoints1->points[(*pCorrespondences)[i].index_match].z;
-  //   std::cout << sqrt(dx*dx + dy*dy + dz*dz) << std::endl;
+  transformPointCloud(*keypoints1, *tf_keypoints1, initial_T);
 
-  // }
+  for (size_t i = 0; i < pCorrespondences->size(); i++) {
+    // std::cout << (*pCorrespondences)[i].index_query << endl;
+    float dx = tf_keypoints1->points[(*pCorrespondences)[i].index_query].x - keypoints2->points[(*pCorrespondences)[i].index_match].x;
+    float dy = tf_keypoints1->points[(*pCorrespondences)[i].index_query].y - keypoints2->points[(*pCorrespondences)[i].index_match].y;
+    float dz = tf_keypoints1->points[(*pCorrespondences)[i].index_query].z - keypoints2->points[(*pCorrespondences)[i].index_match].z;
+    // std::cout << sqrt(dx*dx + dy*dy + dz*dz) << std::endl;
+
+  }
 
 
 
@@ -724,41 +783,41 @@ int main(int argc, char** argv) {
 
 
   // Initial alignment of point clouds, see http://www.pointclouds.org/assets/iros2011/registration.pdf
-  cout << "Executing initial alignment of point clouds" << endl;
+  // cout << "Executing initial alignment of point clouds" << endl;
   // SampleConsensusInitialAlignment<PointXYZRGB, PointXYZRGB, FPFHSignature33> sac;
   // SampleConsensusInitialAlignment<PointXYZRGB, PointXYZRGB, FPFHSignature33> sac;
-  SampleConsensusInitialAlignment<PointXYZRGB, PointXYZRGB, PFHRGBSignature250> sac;
+  // SampleConsensusInitialAlignment<PointXYZRGB, PointXYZRGB, PFHRGBSignature250> sac;
 
-  cout << "Size of keypoints1: " << keypoints1->points.size() << endl;
-  cout << "Size of original cloud: " << downsampled1->points.size() << endl;
+  // cout << "Size of keypoints1: " << keypoints1->points.size() << endl;
+  // cout << "Size of original cloud: " << downsampled1->points.size() << endl;
   // cout << "Size of descriptors1: " << rift_output1->points.size() << endl;
-  cout << "Size of keypoints2: " << keypoints2->points.size() << endl;
+  // cout << "Size of keypoints2: " << keypoints2->points.size() << endl;
   // cout << "Size of descriptors2: " << rift_output2->points.size() << endl;
 
 
-  sac.setMinSampleDistance(0.001);
-  sac.setMaxCorrespondenceDistance(0.1);
+  // sac.setMinSampleDistance(0.001);
+  // sac.setMaxCorrespondenceDistance(0.1);
   // sac.setNumberOfSamples(100);
   // sac.setCorrespondenceRandomness(50);
   // sac.setMaximumIterations(3000);
 
-  sac.setInputSource(keypoints1);
+  // sac.setInputSource(keypoints1);
 
-  sac.setSourceFeatures(descriptors1);
+  // sac.setSourceFeatures(descriptors1);
 
-  sac.setInputTarget(keypoints2);
+  // sac.setInputTarget(keypoints2);
 
-  sac.setTargetFeatures(descriptors2); 
+  // sac.setTargetFeatures(descriptors2); 
 
-  cout << "aligning" << endl;
+  // cout << "aligning" << endl;
   // sac.align(*cloud3);
 
   // initial_T = sac.getFinalTransformation();
   // cout << initial_T << endl;
   
-  cout << "Output size:  " << cloud3->points.size() << endl;
-  cout << "Source cloud size: " << downsampled1->points.size() << endl;
-  cout << "Target cloud size: " << downsampled2->points.size() << endl;
+  // cout << "Output size:  " << cloud3->points.size() << endl;
+  // cout << "Source cloud size: " << downsampled1->points.size() << endl;
+  // cout << "Target cloud size: " << downsampled2->points.size() << endl;
 
   
   ////////////////////////////////////////////////
@@ -768,51 +827,14 @@ int main(int argc, char** argv) {
   Eigen::Matrix4f transform_1 = Eigen::Matrix4f::Identity();
   // transform_1(0,3) = 10;
 
-  // After 50 
-//   transform_1 << 0.921918,  -0.384007,  0.0510615,  -0.326288,
-//   0.385469,   0.922448, -0.0224195,   0.423868,
-// -0.0384923,  0.0403515,   0.998444,   0.262538,
-//          0,          0,          0,          1;
-
-  // After 100
-  transform_1 << 0.958637,   -0.19106,  -0.210977,   0.562371,
-  0.173267,   0.979785, -0.0999999,   0.186025,
-  0.225819,  0.0593081,   0.972363,   0.203542,
-         0,          0,          0,          1;
-
-
-  // After 1000
-  transform_1 << 0.961971,   0.0689365,   -0.264309,    0.127873,
- -0.0654039,    0.997613,   0.0221525,  -0.0686845,
-   0.265204, -0.00402319,    0.964184,  -0.0671253,
-          0,           0,           0,           1;
-
- // After 50 in rift
-//   transform_1 << 0.883548,   0.45023,  0.128978,  -0.73358,
-// -0.468232,  0.843277,  0.263899, -0.559139,
-// 0.0100509,  -0.29356,  0.955888,  0.110644,
-//         0,         0,         0,         1;
-
-  // After 100 in rift
-  // transform_1 << 0.941809,  -0.275714,  -0.192299, -0.0555554,
-  // 0.262352,   0.960548, -0.0923081,   0.526641,
-  // 0.210163,  0.0364862,   0.976986,   0.143747,
-  //        0,          0,          0,          1;
-
-  transform_1 << 0.965846,   -0.131497,   -0.223271,    0.834741,
-   0.136161,    0.990671,  0.00555757, -0.00785276,
-   0.220457,  -0.0357687,    0.974741,    0.147048,
-          0,           0,           0,           1;
 
 
 
-  // Apply transformation to the first cloud
-  transformPointCloud(*cloud1, *tf_cloud1, initial_T);
-  transformPointCloud(*keypoints1, *tf_keypoints1, initial_T);
+
 
   // Get fitness score
   // Registration<PointXYZRGB, PointXYZRGB, float>::getFitnessScore
-  // *cloud3 = *cloud2 + *tf_cloud1;
+  *cloud3 = *cloud2 + *tf_cloud1;
 
 
 
@@ -825,7 +847,6 @@ int main(int argc, char** argv) {
   // copyPointCloud(*keypoints2, *keypoints_xyzrgb);
   // *cloud3 = *keypoints_xyzrgb;
 
-  
 
   // //////////////////////////////////////////////////////////////////////////////////////
   // // Get rough overlapping regions before applying ICP
@@ -834,13 +855,14 @@ int main(int argc, char** argv) {
   // /////////////////////////////////////////////////////////////////////////////////////////
   
   // Apply ICP for refined alignment
+  /*
   cout << "Starting ICP" << endl;
   
   IterativeClosestPoint<PointXYZRGB, PointXYZRGB> icp;
-  icp.setMaxCorrespondenceDistance(0.00);
+  icp.setMaxCorrespondenceDistance(1);
   // icp.setRANSACOutlierRejectionThreshold(1.5);
-  icp.setTransformationEpsilon(0.0001);
-  icp.setMaximumIterations(0);
+  // icp.setTransformationEpsilon(0.0001);
+  // icp.setMaximumIterations(1);
 
   icp.setInputSource(tf_cloud1);
   icp.setInputTarget(cloud2);
@@ -852,12 +874,7 @@ int main(int argc, char** argv) {
   icp.align(*registration_output);
 
   Eigen::Matrix4f refined_T = icp.getFinalTransformation();
-  cout << "refined_T " << refined_T << endl;
-
-// refined_T    0.935199    0.350723   0.0506423   -0.334275
-//   -0.350962    0.936449 -0.00467005   -0.305084
-//  -0.0490393  -0.0134022    0.998787    0.506441
-//           0           0           0           1
+  // cout << "refined_T " << refined_T << endl;
 
   cout << "Fitness score: " << icp.getFitnessScore() << endl;
 
@@ -866,7 +883,7 @@ int main(int argc, char** argv) {
 
   // Concatenate clouds
   *cloud3 = *cloud2 + *final_cloud; 
-
+*/
 
 
 
