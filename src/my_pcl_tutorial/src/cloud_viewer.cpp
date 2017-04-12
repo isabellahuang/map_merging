@@ -1105,7 +1105,7 @@ PointCloud<PointXYZRGB>::Ptr pointcloud_registration(string pcd_path, PointCloud
   errors = get_tf_errors(refined_T * initial_T, inverse_random_tf);
   log_file << "," << errors[0] << "," << errors[1] << "," << icp.getFitnessScore(0.01);
 
-  log_file << "," << susan_duration << "," << pfh_duration << "," << ransac_duration << "," << icp_duration << endl;
+  log_file << "," << susan_duration << "," << pfh_duration << "," << ransac_duration << "," << icp_duration << "," << ransac_iterations << endl;
 
 
   log_file.close();
@@ -1174,15 +1174,16 @@ int main(int argc, char** argv) {
 
 
   //Go through inlier thresholds
-  for (float i = 0.02; i < 0.12; i += 0.02) {
-    for (int k = 0; k < test_pcd_files.size(); k++) {
-      string test_filename = test_pcd_files[k];
-      for (int j = 0; j < 3; j ++) {
-        string filename = "1000ransac_10icp_0.15feature_inlierthreshold.txt";
-        get_overlapping_clouds(test_filename, pre_cloud1, cloud2);
-        cout << "!!! " << pre_cloud1->points.size() << " " << cloud2->points.size() << endl;
-        final_cloud = pointcloud_registration(test_filename, pre_cloud1, cloud2, 
-          "/home/drrobot1/rgbdslam_catkin_ws/src/my_pcl_tutorial/src/rgbdslam_logs/" + filename, 0.15, i, 1000, 10);
+  for (float r = 1000; r <= 1000000; r = r * 10) {
+    for (float i = 0.02; i < 0.12; i += 0.02) {
+      for (int k = 0; k < test_pcd_files.size(); k++) {
+        string test_filename = test_pcd_files[k];
+        for (int j = 0; j < 3; j ++) {
+          string filename = "0icp_0.13feature_inlierthreshold_ransac.txt";
+          get_overlapping_clouds(test_filename, pre_cloud1, cloud2);
+          final_cloud = pointcloud_registration(test_filename, pre_cloud1, cloud2, 
+            "/home/drrobot1/rgbdslam_catkin_ws/src/my_pcl_tutorial/src/rgbdslam_logs/" + filename, 0.13, i, r, 0);
+        }
       }
     }
   }
