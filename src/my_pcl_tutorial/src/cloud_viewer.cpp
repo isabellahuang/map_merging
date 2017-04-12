@@ -823,7 +823,7 @@ void show_iteration(const PointCloud<PointXYZRGB>::Ptr cloud_target, const Point
 
 
 PointCloud<PointXYZRGB>::Ptr pointcloud_registration(string pcd_path, PointCloud<PointXYZRGB>::Ptr og_pre_cloud1, PointCloud<PointXYZRGB>::Ptr og_cloud2, 
-  string log_path, float feature_radius, float inlier_threshold, int ransac_iterations, int icp_iterations, float icp_distance) {
+  string log_path, float voxel_size, float feature_radius, float inlier_threshold, int ransac_iterations, int icp_iterations, float icp_distance) {
 
 
   // Load files (first cloud)
@@ -875,12 +875,19 @@ PointCloud<PointXYZRGB>::Ptr pointcloud_registration(string pcd_path, PointCloud
   float voxel_grid_leaf_size = 0.01;
   voxel_grid_leaf_size = 0.05; // Use this to make bigger downsampling
   voxel_grid_leaf_size = 0.025;
-  downsample(cloud1, voxel_grid_leaf_size, downsampled1);
-  downsample(cloud2, voxel_grid_leaf_size, downsampled2);
+  downsample(cloud1, voxel_size, downsampled1);
+  downsample(cloud2, voxel_size, downsampled2);
   // downsampled1 = cloud1;
   // downsampled2 = cloud2;
   cout << "Cloud1 used to be " << cloud1->points.size() << " but after downsampling it's " << downsampled1->points.size() << endl;
   cout << "Cloud2 used to be " << cloud2->points.size() << " but after downsampling it's " << downsampled2->points.size() << endl;
+
+  ofstream log_file2;
+  log_file2.open(log_path.c_str(), ios::out | ios::app);
+  log_file2 << pcd_path << "," << voxel_size << "," << cloud1->points.size() << "," << downsampled1->points.size() << "," << cloud2->points.size() << "," << downsampled2->points.size() << endl;
+
+  log_file2.close();
+  return pre_cloud1;
 
   // Compute normals
   cout << endl << "===== Calculating normals =====" << endl;
@@ -1018,7 +1025,6 @@ PointCloud<PointXYZRGB>::Ptr pointcloud_registration(string pcd_path, PointCloud
   *cloud3 = *downsampled2 + *downsampled1;
 
   // Do ICP for refinement
-  for (float icp_i = 0; icp_i <= 100; icp_i += 20) {
 
   cout << endl << "===== ICP =====" << endl;  clock_t icp_start_time = clock();
   IterativeClosestPoint<PointXYZRGB, PointXYZRGB> icp;
@@ -1028,7 +1034,7 @@ PointCloud<PointXYZRGB>::Ptr pointcloud_registration(string pcd_path, PointCloud
   icp.setInputTarget(downsampled2);
 
   icp.setTransformationEpsilon(1e-8);
-  icp.setMaximumIterations(icp_i);
+  icp.setMaximumIterations(icp_iterations);
   icp.align(*tf_cloud_icp1);
   Eigen::Matrix4f refined_T = icp.getFinalTransformation();
   double icp_duration = (clock() - icp_start_time) / (double) CLOCKS_PER_SEC;
@@ -1038,7 +1044,6 @@ PointCloud<PointXYZRGB>::Ptr pointcloud_registration(string pcd_path, PointCloud
   // *cloud3 = *tf_cloud_icp1 + *cloud2;
   transformPointCloud(*downsampled1, *tf_cloud_icp1, refined_T * initial_T);
   *cloud3 = *tf_cloud_icp1 + *downsampled2;
-
 
 
   cout << "Finished visualizing" << endl;
@@ -1063,12 +1068,12 @@ PointCloud<PointXYZRGB>::Ptr pointcloud_registration(string pcd_path, PointCloud
   errors = get_tf_errors(refined_T * initial_T, inverse_random_tf);
   log_file << "," << errors[0] << "," << errors[1] << "," << icp.getFitnessScore(0.01);
 
-  log_file << "," << susan_duration << "," << pfh_duration << "," << ransac_duration << "," << icp_duration << "," << icp_i << endl;
+  log_file << "," << susan_duration << "," << pfh_duration << "," << ransac_duration << "," << icp_duration << "," << voxel_size << endl;
 
 
   log_file.close();
   
-  }
+  
 
 
   return cloud3;
@@ -1132,21 +1137,23 @@ int main(int argc, char** argv) {
 
 
   //Go through inlier thresholds
-  // for (float r = 0.01; r <= 0.2; r = r + 0.02) {
+  for (float r = 0.01; r <= 0.05; r = r + 0.005) {
     // for (float i = 0.02; i < 0.12; i += 0.02) {
       for (int k = 0; k < test_pcd_files.size(); k++) {
         string test_filename = test_pcd_files[k];
-        // for (int j = 0; j < 3; j ++) {
-          string filename = "0.13feature_0.1inlier_1000000ransac_0.05icpdistance_icpiterations.txt";
+        for (int j = 0; j < 3; j ++) {
+          string filename = "downsampled_sizes.txt";
           get_overlapping_clouds(test_filename, pre_cloud1, cloud2);
           final_cloud = pointcloud_registration(test_filename, pre_cloud1, cloud2, 
-            "/home/drrobot1/rgbdslam_catkin_ws/src/my_pcl_tutorial/src/rgbdslam_logs/" + filename, 0.13, 0.1, 1000000, 20, 0.05);
-        // }
+            "/home/drrobot1/rgbdslam_catkin_ws/src/my_pcl_tutorial/src/rgbdslam_logs/" + filename, r, 0.13, 0.1, 1000000, 20, 0.05);
+        }
       }
     // }
-  // }
+  }
 
-
+  float voxel_grid_leaf_size = 0.01;
+  voxel_grid_leaf_size = 0.05; // Use this to make bigger downsampling
+  voxel_grid_leaf_size = 0.025;
 
   // vector<int> indices3;
   // removeNaNFromPointCloud(*cloud3, *cloud3, indices3);
