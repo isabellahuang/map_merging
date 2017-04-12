@@ -121,7 +121,7 @@ vector<float> get_tf_errors(Matrix4f tf, Matrix4f tf_truth) {
 
   vector<float> tf_errors;
   tf_errors.push_back(theta);
-  tf_errors.push_back(norm_square);
+  tf_errors.push_back(sqrt(norm_square));
 
   return tf_errors;
 
@@ -823,7 +823,7 @@ void show_iteration(const PointCloud<PointXYZRGB>::Ptr cloud_target, const Point
 
 
 PointCloud<PointXYZRGB>::Ptr pointcloud_registration(string pcd_path, PointCloud<PointXYZRGB>::Ptr og_pre_cloud1, PointCloud<PointXYZRGB>::Ptr og_cloud2, 
-  string log_path, float feature_radius, float inlier_threshold, int ransac_iterations, int icp_iterations) {
+  string log_path, float feature_radius, float inlier_threshold, int ransac_iterations, int icp_iterations, float icp_distance) {
 
 
   // Load files (first cloud)
@@ -1018,19 +1018,17 @@ PointCloud<PointXYZRGB>::Ptr pointcloud_registration(string pcd_path, PointCloud
   *cloud3 = *downsampled2 + *downsampled1;
 
   // Do ICP for refinement
+  for (float icp_i = 0; icp_i <= 100; icp_i += 20) {
+
   cout << endl << "===== ICP =====" << endl;  clock_t icp_start_time = clock();
   IterativeClosestPoint<PointXYZRGB, PointXYZRGB> icp;
-  icp.setMaxCorrespondenceDistance(0.05);
-
-  // icp.setInputSource(tf_cloud1);
-  // icp.setInputTarget(cloud2);
+  icp.setMaxCorrespondenceDistance(icp_distance);
   
-
   icp.setInputSource(tf_downsampled1);
   icp.setInputTarget(downsampled2);
 
   icp.setTransformationEpsilon(1e-8);
-  icp.setMaximumIterations(icp_iterations);
+  icp.setMaximumIterations(icp_i);
   icp.align(*tf_cloud_icp1);
   Eigen::Matrix4f refined_T = icp.getFinalTransformation();
   double icp_duration = (clock() - icp_start_time) / (double) CLOCKS_PER_SEC;
@@ -1041,46 +1039,6 @@ PointCloud<PointXYZRGB>::Ptr pointcloud_registration(string pcd_path, PointCloud
   transformPointCloud(*downsampled1, *tf_cloud_icp1, refined_T * initial_T);
   *cloud3 = *tf_cloud_icp1 + *downsampled2;
 
-  /*
-  IterativeClosestPoint<PointXYZRGB, PointXYZRGB> icp;
-  icp.setMaxCorrespondenceDistance(0.05);
-
-  icp.setMaximumIterations(2);
-
-  icp.setInputSource(tf_downsampled1);
-  icp.setInputTarget(downsampled2);
-
-
-  PointCloud<PointXYZRGB>::Ptr icp_progress (new PointCloud<PointXYZRGB>);
-  *icp_progress = *tf_downsampled1;
-  PointCloud<PointXYZRGB>::Ptr icp_result (new PointCloud<PointXYZRGB>);
-  *icp_result = *tf_downsampled1;
-
-  Matrix4f Ti = Matrix4f::Identity();
-  */
-
-
-  // pcl::visualization::PCLVisualizer icp_viz;
-  // icp_viz.setSize(1500, 1000);
-  // icp_viz.addPointCloud(downsampled2, "target");
-  // icp_viz.addPointCloud (icp_progress, "points");
-
-  // cout << "Trying to visualize" << endl;
-  // for (int i = 0; i < 100; i ++) {
-  //   icp_viz.removePointCloud("points");
-  //   icp_progress = icp_result;
-  //   icp_viz.addPointCloud (icp_progress, "points");
-
-  //   icp.setInputSource(icp_progress);
-  //   icp.align(*icp_result);
-  //   icp_viz.spinOnce();
-
-  //   // Ti = icp.getFinalTransformation() * Ti;
-  //   // show_iteration(cloud2, icp_progress);
-  // }
-
-  // icp_viz.addPointCloud(cloud3, "two_clouds");
-  // icp_viz.spin();
 
 
   cout << "Finished visualizing" << endl;
@@ -1105,12 +1063,12 @@ PointCloud<PointXYZRGB>::Ptr pointcloud_registration(string pcd_path, PointCloud
   errors = get_tf_errors(refined_T * initial_T, inverse_random_tf);
   log_file << "," << errors[0] << "," << errors[1] << "," << icp.getFitnessScore(0.01);
 
-  log_file << "," << susan_duration << "," << pfh_duration << "," << ransac_duration << "," << icp_duration << "," << ransac_iterations << endl;
+  log_file << "," << susan_duration << "," << pfh_duration << "," << ransac_duration << "," << icp_duration << "," << icp_i << endl;
 
 
   log_file.close();
   
-  
+  }
 
 
   return cloud3;
@@ -1174,19 +1132,19 @@ int main(int argc, char** argv) {
 
 
   //Go through inlier thresholds
-  for (float r = 1000; r <= 1000000; r = r * 10) {
-    for (float i = 0.02; i < 0.12; i += 0.02) {
+  // for (float r = 0.01; r <= 0.2; r = r + 0.02) {
+    // for (float i = 0.02; i < 0.12; i += 0.02) {
       for (int k = 0; k < test_pcd_files.size(); k++) {
         string test_filename = test_pcd_files[k];
-        for (int j = 0; j < 3; j ++) {
-          string filename = "0icp_0.13feature_inlierthreshold_ransac.txt";
+        // for (int j = 0; j < 3; j ++) {
+          string filename = "0.13feature_0.1inlier_1000000ransac_0.05icpdistance_icpiterations.txt";
           get_overlapping_clouds(test_filename, pre_cloud1, cloud2);
           final_cloud = pointcloud_registration(test_filename, pre_cloud1, cloud2, 
-            "/home/drrobot1/rgbdslam_catkin_ws/src/my_pcl_tutorial/src/rgbdslam_logs/" + filename, 0.13, i, r, 0);
-        }
+            "/home/drrobot1/rgbdslam_catkin_ws/src/my_pcl_tutorial/src/rgbdslam_logs/" + filename, 0.13, 0.1, 1000000, 20, 0.05);
+        // }
       }
-    }
-  }
+    // }
+  // }
 
 
 
