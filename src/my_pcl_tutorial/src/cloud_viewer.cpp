@@ -749,7 +749,7 @@ float getFitnessScore(
 }
 
 
-void get_overlapping_clouds(string filename, PointCloud<PointXYZRGB>::Ptr &source, PointCloud<PointXYZRGB>::Ptr &target) {
+int get_overlapping_clouds(string filename, PointCloud<PointXYZRGB>::Ptr &source, PointCloud<PointXYZRGB>::Ptr &target) {
 
   cout << "===== Getting overlapping clouds =====" << endl;
   // Make cloud to contain entire point cloud
@@ -775,25 +775,28 @@ void get_overlapping_clouds(string filename, PointCloud<PointXYZRGB>::Ptr &sourc
   float y_range = max_pt.y - min_pt.y;
   float z_range = max_pt.z - min_pt.z;
 
+
   // The bigger these constants, the bigger the overlap in that direction
-  float kx = 0.1;// + static_cast<float> (rand()) / (static_cast<float> (RAND_MAX/ (0.5)));
-  float kz = 0.1;// + static_cast<float> (rand()) / (static_cast<float> (RAND_MAX/ (0.5)));
-  float ky = 0.1;// + static_cast<float> (rand()) / (static_cast<float> (RAND_MAX/ (0.5)));
+  float kx = 0 + static_cast<float> (rand()) / (static_cast<float> (RAND_MAX/ (0.4)));
+  float kz = 0 + static_cast<float> (rand()) / (static_cast<float> (RAND_MAX/ (0.4)));
+  float ky = 0 + static_cast<float> (rand()) / (static_cast<float> (RAND_MAX/ (0.4)));
 
-  // cout << "Kx, Ky, Kz " << kx << " " << ky << " " << kz << endl;
+  cout << "Kx, Ky, Kz " << kx << " " << ky << " " << kz << endl;
 
-  kx = 0.05;
-  ky = 0.05;
-  kz = 0.05;
+  kx = 0.0;
+  ky = 0.0;
+  kz = 0.0;
 
   int overlap_counter = 0;
-
+  bool first = false;
+  bool second = false;
   for (size_t i = 0 ; i < total_cloud->points.size(); i ++) {
 
     if (total_cloud->points[i].y > (y_mean - ky * y_range) 
       && total_cloud->points[i].x > (x_mean - kx * x_range) 
       && total_cloud->points[i].z > (z_mean - kz * z_range) ) {
       cloud2->points.push_back(total_cloud->points[i]);
+      first = true;
     }
 
     if (total_cloud->points[i].y < (y_mean + ky * y_range) 
@@ -801,14 +804,25 @@ void get_overlapping_clouds(string filename, PointCloud<PointXYZRGB>::Ptr &sourc
       || total_cloud->points[i].z < (z_mean + kz * z_range)) {
 
       cloud1->points.push_back(total_cloud->points[i]);
+      second = true;
     }
+
+    if (first && second) {
+      overlap_counter ++;
+    }
+
+    first = false;
+    second = false;
 
   }
 
   source = cloud2;
   target = cloud1;
-
-  return;
+  cout << "Overlap: " << overlap_counter << " out of " << cloud1->points.size() << ", " << cloud2->points.size()  << "," << total_cloud->points.size() << endl;
+  cout << overlap_counter * 1.0 / cloud1->points.size() << endl;
+  cout << overlap_counter * 1.0 / cloud2->points.size() << endl;
+  cout << overlap_counter * 1.0 / total_cloud->points.size() << endl;
+  return overlap_counter;
 
 }
 
@@ -823,7 +837,7 @@ void show_iteration(const PointCloud<PointXYZRGB>::Ptr cloud_target, const Point
 
 
 PointCloud<PointXYZRGB>::Ptr pointcloud_registration(string pcd_path, PointCloud<PointXYZRGB>::Ptr og_pre_cloud1, PointCloud<PointXYZRGB>::Ptr og_cloud2, 
-  string log_path, float voxel_size, float feature_radius, float inlier_threshold, int ransac_iterations, int icp_iterations, float icp_distance) {
+  string log_path, float voxel_size, float feature_radius, float inlier_threshold, int ransac_iterations, int icp_iterations, float icp_distance, int overlap_counter) {
 
 
   // Load files (first cloud)
@@ -882,12 +896,6 @@ PointCloud<PointXYZRGB>::Ptr pointcloud_registration(string pcd_path, PointCloud
   cout << "Cloud1 used to be " << cloud1->points.size() << " but after downsampling it's " << downsampled1->points.size() << endl;
   cout << "Cloud2 used to be " << cloud2->points.size() << " but after downsampling it's " << downsampled2->points.size() << endl;
 
-  ofstream log_file2;
-  log_file2.open(log_path.c_str(), ios::out | ios::app);
-  log_file2 << pcd_path << "," << voxel_size << "," << cloud1->points.size() << "," << downsampled1->points.size() << "," << cloud2->points.size() << "," << downsampled2->points.size() << endl;
-
-  log_file2.close();
-  return pre_cloud1;
 
   // Compute normals
   cout << endl << "===== Calculating normals =====" << endl;
@@ -1068,7 +1076,8 @@ PointCloud<PointXYZRGB>::Ptr pointcloud_registration(string pcd_path, PointCloud
   errors = get_tf_errors(refined_T * initial_T, inverse_random_tf);
   log_file << "," << errors[0] << "," << errors[1] << "," << icp.getFitnessScore(0.01);
 
-  log_file << "," << susan_duration << "," << pfh_duration << "," << ransac_duration << "," << icp_duration << "," << voxel_size << endl;
+  log_file << "," << susan_duration << "," << pfh_duration << "," << ransac_duration << "," << icp_duration << "," 
+  << cloud1->points.size() << "," << cloud2->points.size() << ","  <<  overlap_counter << endl;
 
 
   log_file.close();
@@ -1106,10 +1115,15 @@ int main(int argc, char** argv) {
   // test_pcd_files.push_back("/home/drrobot1/rgbdslam_catkin_ws/hi2.pcd");
   // test_pcd_files.push_back("/home/drrobot1/rgbdslam_catkin_ws/hey2.pcd");
   // test_pcd_files.push_back("/home/drrobot1/rgbdslam_catkin_ws/hey1.pcd");
-  test_pcd_files.push_back("/home/drrobot1/rgbdslam_catkin_ws/rgbdslam_og1.pcd");
-  test_pcd_files.push_back("/home/drrobot1/rgbdslam_catkin_ws/rgbdslam_og2.pcd");
-  test_pcd_files.push_back("/home/drrobot1/rgbdslam_catkin_ws/rgbdslam_og3.pcd");
-  test_pcd_files.push_back("/home/drrobot1/rgbdslam_catkin_ws/rgbdslam_og4.pcd");
+
+  test_pcd_files.push_back("/home/drrobot1/rgbdslam_catkin_ws/rgbdslam_test2.pcd");
+
+  test_pcd_files.push_back("/home/drrobot1/rgbdslam_catkin_ws/rgbdslam_test3.pcd");
+
+  test_pcd_files.push_back("/home/drrobot1/rgbdslam_catkin_ws/rgbdslam_test1.pcd");
+  test_pcd_files.push_back("/home/drrobot1/rgbdslam_catkin_ws/rgbdslam_test4.pcd");
+
+
 
 
   // ------------------ LOADING TWO POINT CLOUD FILES 
@@ -1134,26 +1148,23 @@ int main(int argc, char** argv) {
   */
   // ------------------ 
 
-
+  srand(time(NULL));
 
   //Go through inlier thresholds
-  for (float r = 0.01; r <= 0.05; r = r + 0.005) {
+  // for (float r = 0.01; r <= 0.05; r = r + 0.005) {
     // for (float i = 0.02; i < 0.12; i += 0.02) {
       for (int k = 0; k < test_pcd_files.size(); k++) {
         string test_filename = test_pcd_files[k];
-        for (int j = 0; j < 3; j ++) {
-          string filename = "downsampled_sizes.txt";
-          get_overlapping_clouds(test_filename, pre_cloud1, cloud2);
+        for (int j = 0; j < 20; j ++) {
+          string filename = "overlapping_cross_validation.txt";
+          int overlap_counter = get_overlapping_clouds(test_filename, pre_cloud1, cloud2);
           final_cloud = pointcloud_registration(test_filename, pre_cloud1, cloud2, 
-            "/home/drrobot1/rgbdslam_catkin_ws/src/my_pcl_tutorial/src/rgbdslam_logs/" + filename, r, 0.13, 0.1, 1000000, 20, 0.05);
+            "/home/drrobot1/rgbdslam_catkin_ws/src/my_pcl_tutorial/src/rgbdslam_logs/" + filename, 0.03, 0.13, 0.1, 1000000, 20, 0.05, overlap_counter);
         }
       }
     // }
-  }
+  // }
 
-  float voxel_grid_leaf_size = 0.01;
-  voxel_grid_leaf_size = 0.05; // Use this to make bigger downsampling
-  voxel_grid_leaf_size = 0.025;
 
   // vector<int> indices3;
   // removeNaNFromPointCloud(*cloud3, *cloud3, indices3);
